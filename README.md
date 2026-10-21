@@ -120,3 +120,7 @@ ObsFileMonitor/
 - `config.json` 中以**明文**保存 OBS WebSocket 密码，已加入 `.gitignore`，请勿分享。
 - 配置页面只监听 `127.0.0.1`，并校验 Host 头、只接受 JSON 请求，其他网页无法读取或修改配置。
 - 配置页面的接口不会把密码返回给浏览器。
+
+## 许可证
+
+[MIT](LICENSE) © 2026 Gateswong
