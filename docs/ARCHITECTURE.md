@@ -32,6 +32,7 @@ WebSocket│ (线程)        │   │ (线程)            │         │ (线�
 | `ObsPoller` | `obs_client.py` | 连接 OBS，按 `poll_interval_sec` 轮询，断线后每 3 秒重连。 |
 | `DirectoryScanner` | `file_monitor.py` | 每秒检查一次是否需要扫描；仅在 `directory` 模式且正在录制时工作。 |
 | `WebServer` | `web_ui.py` | `ThreadingHTTPServer`，每个请求一个线程。 |
+| `RenameWorker` | `renamer.py` | 持有按到期时间排序的重命名任务队列，到期后执行；文件被占用时重新入队。 |
 
 线程之间只通过三样东西交互：
 
@@ -54,6 +55,11 @@ WebSocket│ (线程)        │   │ (线程)            │         │ (线�
 | `GetRecordDirectory` | 连接后、每次录制开始时 | `recordDirectory` |
 | `GetRecordStatus` | 每次轮询 | `outputActive`, `outputPaused`, `outputDuration`(ms), `outputTimecode`, `outputBytes` |
 | `GetStats` | 每次轮询 | `outputSkippedFrames`, `outputTotalFrames`, `renderSkippedFrames`, `renderTotalFrames` |
+| `GetProfileList` | 每次录制开始时 | `currentProfileName` |
+| `GetCurrentProgramScene` | 录制期间每次轮询 | `currentProgramSceneName`（旧版本为 `sceneName`） |
+| `GetSceneItemList` | 录制停止时 | `sceneItems[]`：`sourceName`, `inputKind`, `sceneItemIndex`, `sceneItemEnabled`, `isGroup` |
+| `GetGroupSceneItemList` | 录制停止时，场景中有分组时 | 同上 |
+| `GetInputSettings` | 录制停止时，对游戏采集/窗口采集 | `inputSettings.window` |
 
 ### 为什么用轮询而不是事件订阅？
 
@@ -94,6 +100,57 @@ obs-websocket 支持事件推送（如 `RecordStateChanged`），但录制时长
 对正在写入的文件会明显滞后。OBS 以允许共享读取的方式打开录制文件，只读打开不会影响录制。
 
 扫描时机：每 `scan_interval_sec` 秒；检测到新录制开始时立即扫描；没找到文件时 2 秒后重试；配置保存后立即扫描。
+
+## 录制后重命名
+
+```
+ObsPoller（每次轮询）                                  RenameWorker
+  录制开始 ─ GetProfileList → 记录配置文件
+           SceneTracker.start()
+  录制中   ─ GetCurrentProgramScene
+           两次轮询的间隔计入当前场景（暂停时不计）
+  录制停止 ─ SceneTracker.longest() → 最长场景
+           GetSceneItemList / GetInputSettings
+           → pick_app_title() → 应用标题
+           submit(RenameJob, due = 停止时间 + delay_sec) ──►  到期 → run_job()
+                                                              文件被占用 → 10 秒后重试（最多 30 次）
+                                                              结果写入 SharedState.last_rename
+```
+
+应用标题在**录制停止的那一刻**就确定（此时 OBS 一定是连着的），延迟只用于等待文件被释放。
+
+### 应用标题判定（`pick_app_title`）
+
+1. 把场景来源按 OBS 来源列表从上到下排序：`sceneItemIndex` 越大越靠上；跳过已隐藏（`sceneItemEnabled=false`）的来源；
+   分组（`isGroup`）原地展开；嵌套的场景不展开。
+2. 第一个有窗口标题的 `game_capture` → 标题；
+3. 否则第一个有窗口标题的 `window_capture` → 标题；
+4. 否则若有 `monitor_capture` → `Display Capture`；
+5. 否则省略。
+
+`game_capture` / `window_capture` 的 `window` 设置格式为 `标题:窗口类名:进程名`，字段内的 `:` 编码为 `#3A`、`#` 编码为 `#22`。
+例如 `Don't Starve Together:opengles2.0:dontstarve_steam_x64.exe`，OBS 界面中显示为
+`[dontstarve_steam_x64.exe]: Don't Starve Together`。`parse_window_title()` 取第一个字段、解码并去掉首尾空白
+（有的游戏标题带尾随空格，例如 `MortalShell2  `）。“捕获任意全屏应用程序”模式的游戏采集没有 `window`，会被跳过。
+
+### 找到要改名的文件（`run_job`）
+
+- 本次录制的文件 = 录制目录中扩展名匹配、**创建时间**在 `[开始 − 10 秒, 停止 + 5 秒]` 内的文件。
+  这样能覆盖分段录制的所有分段，又不会误伤延迟期间开始的下一次录制。
+- 第一次执行时记下这些文件名（不含扩展名）；之后每次执行都处理“同名、任意录制扩展名”的文件，
+  从而把录制停止后才生成的 remux 副本（如 `.mkv` → `.mp4`）一起改名。
+- 已改名的文件名已变化，不会被重复处理；文件名已以要追加的内容结尾的也会跳过。
+- 用 `os.rename`（Windows 上目标存在时失败，不会覆盖），目标已存在时用 `unique_path()` 追加 ` (2)`。
+- `PermissionError`（OBS 仍占用、remux 正在读取）→ 其余文件照常处理，本任务 10 秒后重试，最多 30 次。
+
+### 边界情况
+
+| 情况 | 行为 |
+| --- | --- |
+| 本程序在录制中途启动 | 场景时长只统计启动之后；配置文件名正常 |
+| 录制期间 OBS 断开 | 看不到“录制停止”，不重命名（重连时若仍在录制，按新录制重新统计） |
+| 延迟期间退出本程序 | 任务丢失，文件保持原名（退出时日志会提示） |
+| 找不到文件 | “最近重命名”显示原因，不重试 |
 
 ## 叠加窗口
 
@@ -176,6 +233,8 @@ Tk 在窗口映射、修改 `-alpha`/`-topmost` 时会重写扩展样式，所�
 | 只依赖 `obsws-python` | WebSocket v5 的鉴权握手自己写也不难，但用成熟库更省心 | 手写 WebSocket 客户端 |
 | 配置页面用 `http.server` | 只有几个接口，不值得引入 Flask/FastAPI | Flask |
 | 大小默认扫描录制目录 | 实测 `outputBytes` 在一些环境中是本次 OBS 会话所有录制的累计值，而需求要的是本次录制文件的实际大小 | 默认用 `outputBytes`（0.1.0 版本的做法，现作为可选模式保留） |
+| 录制停止时立即确定应用标题，延迟只等文件 | 延迟期间 OBS 可能被关闭或场景被修改 | 到期后再查询 OBS |
+| 按创建时间区间找文件，而不是只用目录扫描得到的“最新文件” | 能覆盖分段录制和 remux 副本，且与 `size_source` 无关 | 只重命名 `file_path` |
 | 两个窗口实现背景 | Tk 的 `-alpha` 作用于整个窗口，文字和背景无法分别设置透明度 | 单窗口 + 统一透明度；`UpdateLayeredWindow` 逐像素 alpha（需要自己渲染位图，复杂度高） |
 | 轮询而非事件 | 需要的数据都没有推送事件 | 事件 + 轮询混合 |
 | 跳帧做基线差值 | OBS 给的是全局累计值，直接显示会包含录制之前的跳帧 | 直接显示累计值 |

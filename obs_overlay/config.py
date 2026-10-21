@@ -58,6 +58,12 @@ DEFAULTS: dict[str, Any] = {
         # 未在录制时是否仍显示叠加窗口
         "show_when_idle": True,
     },
+    "rename": {
+        # 录制停止后，把文件重命名为 "<原文件名> <应用标题> [<配置文件名>].<扩展名>"
+        "enabled": True,
+        # 录制停止后等待多少秒再重命名（给 OBS 关闭文件、remux 留出时间）
+        "delay_sec": 30,
+    },
     "web": {
         # 配置页面固定只监听 127.0.0.1，这里只能改端口
         "port": 8765,
@@ -102,7 +108,7 @@ def validate(cfg: dict, check_paths: bool = True) -> dict:
     以免外接硬盘未挂载等情况导致整份配置被丢弃）。
     """
     cfg = _deep_merge(DEFAULTS, cfg)
-    obs, rec, ov, web = cfg["obs"], cfg["recording"], cfg["overlay"], cfg["web"]
+    obs, rec, ov, web, ren = cfg["obs"], cfg["recording"], cfg["overlay"], cfg["web"], cfg["rename"]
 
     try:
         obs["port"] = int(obs["port"])
@@ -114,6 +120,7 @@ def validate(cfg: dict, check_paths: bool = True) -> dict:
         ov["bg_opacity"] = float(ov["bg_opacity"])
         ov["font_size"] = int(ov["font_size"])
         web["port"] = int(web["port"])
+        ren["delay_sec"] = int(ren["delay_sec"])
     except (TypeError, ValueError) as e:
         raise ConfigError(f"数值字段格式错误：{e}") from e
 
@@ -144,6 +151,9 @@ def validate(cfg: dict, check_paths: bool = True) -> dict:
             raise ConfigError(f"overlay.{key} 必须是 #RRGGBB 格式的颜色")
     for key in ("enabled", "click_through", "exclude_from_capture", "show_when_idle", "shadow"):
         ov[key] = bool(ov[key])
+    ren["enabled"] = bool(ren["enabled"])
+    if not 5 <= ren["delay_sec"] <= 600:
+        raise ConfigError("rename.delay_sec 必须在 5-600 秒之间")
     return cfg
 
 

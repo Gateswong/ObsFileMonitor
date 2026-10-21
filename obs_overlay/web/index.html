@@ -114,6 +114,16 @@
     </section>
 
     <section>
+      <h2>录制后重命名</h2>
+      <div class="grid">
+        <label for="rename.enabled">启用</label><input id="rename.enabled" type="checkbox">
+        <div class="hint">停止录制后重命名为“原文件名 应用标题 [配置文件名].扩展名”</div>
+        <label for="rename.delay_sec">延迟（秒）</label><input id="rename.delay_sec" type="number" min="5" max="600" required>
+        <div class="hint">停止录制后等待多久再重命名，给 OBS 关闭文件、自动 remux 留出时间</div>
+      </div>
+    </section>
+
+    <section>
       <h2>Web 配置页面</h2>
       <div class="grid">
         <label for="web.port">端口</label><input id="web.port" type="number" min="1" max="65535" required>
@@ -205,6 +215,9 @@ async function refreshStatus() {
       ["已录制时长", fmtDur(s.duration_ms)],
       ["大小（WebSocket）", fmtBytes(s.output_bytes)],
       ["大小（目录扫描）", s.file_path ? `${fmtBytes(s.file_size)} — ${s.file_path}` : (s.file_error || "-")],
+      ["配置文件", s.profile || "-"],
+      ["当前场景", s.current_scene || "-"],
+      ["最近重命名", s.last_rename ? `${new Date(s.last_rename_at * 1000).toLocaleTimeString()} ${s.last_rename}` : "-"],
       ["编码跳帧", fmtSkip(s.encoder_skipped, s.encoder_total) + (s.skipped_partial ? " *" : "")],
       ["渲染跳帧", fmtSkip(s.render_skipped, s.render_total) + (s.skipped_partial ? " *" : "")],
     ];

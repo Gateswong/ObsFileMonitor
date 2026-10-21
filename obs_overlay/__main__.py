@@ -4,6 +4,7 @@
     主线程           tkinter 叠加窗口（Tk 只能在创建它的线程中使用）
     ObsPoller        轮询 OBS WebSocket
     DirectoryScanner 扫描录制目录（仅 size_source=directory 时工作）
+    RenameWorker     录制停止后延迟重命名录制文件
     WebServer        本地配置页面
 """
 
@@ -14,6 +15,7 @@ import logging
 import signal
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
 
@@ -21,6 +23,7 @@ from .config import DEFAULT_CONFIG_PATH, ConfigStore
 from .file_monitor import DirectoryScanner
 from .obs_client import ObsPoller
 from .overlay import Overlay
+from .renamer import RenameWorker
 from .state import SharedState
 from .web_ui import WebServer
 
@@ -49,9 +52,10 @@ def main(argv: list[str] | None = None) -> int:
         logging.error("无法启动配置页面（端口 %s 被占用？）：%s", store.get()["web"]["port"], e)
         return 1
 
-    poller = ObsPoller(store, state)
+    renamer = RenameWorker(on_result=lambda msg: state.update(last_rename=msg, last_rename_at=time.time()))
+    poller = ObsPoller(store, state, renamer)
     scanner = DirectoryScanner(store, state)
-    for t in (web, poller, scanner):
+    for t in (web, renamer, poller, scanner):
         t.start()
 
     print(f"配置页面：{web.url}  （按 Ctrl+C 或在配置页面点击“退出程序”结束）")
@@ -66,6 +70,9 @@ def main(argv: list[str] | None = None) -> int:
         Overlay(store, state, quit_event).run()
     finally:
         poller.stop()
+        if renamer.pending():
+            logging.warning("还有 %d 个重命名任务未执行，程序退出后这些文件将保持原名", renamer.pending())
+        renamer.stop()
         scanner.stop()
         web.shutdown()
     return 0

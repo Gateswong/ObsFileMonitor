@@ -27,18 +27,22 @@ def _created_at(st: os.stat_result) -> float:
     return getattr(st, "st_birthtime", st.st_ctime)
 
 
-def find_latest_recording(directory: Path, extensions: list[str], since: float | None) -> Path | None:
-    """返回目录中最新创建的视频文件（不递归子目录）。
+def list_recordings(
+    directory: Path,
+    extensions: list[str],
+    created_from: float | None = None,
+    created_to: float | None = None,
+) -> list[tuple[float, Path]]:
+    """列出目录（不递归）中扩展名匹配的文件，返回按创建时间升序的 (创建时间, 路径)。
 
-    ``since`` 不为空时只考虑在该时间点之后创建的文件，避免录制刚开始、
-    新文件还没出现时误报上一次录制的文件。
+    ``created_from`` / ``created_to`` 不为空时只保留创建时间落在该区间内的文件。
     """
     exts = {e.lower() for e in extensions}
-    best: tuple[float, Path] | None = None
     try:
         entries = list(os.scandir(directory))
     except OSError as e:
         raise FileNotFoundError(f"无法读取录制目录 {directory}：{e}") from e
+    result = []
     for entry in entries:
         if not entry.is_file() or Path(entry.name).suffix.lower() not in exts:
             continue
@@ -46,11 +50,24 @@ def find_latest_recording(directory: Path, extensions: list[str], since: float |
             created = _created_at(entry.stat())
         except OSError:
             continue
-        if since is not None and created < since - START_SLACK_SEC:
+        if created_from is not None and created < created_from:
             continue
-        if best is None or created > best[0]:
-            best = (created, Path(entry.path))
-    return best[1] if best else None
+        if created_to is not None and created > created_to:
+            continue
+        result.append((created, Path(entry.path)))
+    result.sort()
+    return result
+
+
+def find_latest_recording(directory: Path, extensions: list[str], since: float | None) -> Path | None:
+    """返回目录中最新创建的视频文件（不递归子目录）。
+
+    ``since`` 不为空时只考虑在该时间点之后创建的文件，避免录制刚开始、
+    新文件还没出现时误报上一次录制的文件。
+    """
+    created_from = since - START_SLACK_SEC if since is not None else None
+    files = list_recordings(directory, extensions, created_from)
+    return files[-1][1] if files else None
 
 
 def read_size(path: Path) -> int:

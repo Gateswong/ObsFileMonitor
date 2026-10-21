@@ -71,6 +71,16 @@
 | 白字 + 半透明黑色底板 | `bg_opacity: 0.5`, `bg_color: "#000000"` |
 | 很淡的文字，不干扰画面 | `text_opacity: 0.5`, `bg_opacity: 0` |
 
+## `rename` — 录制后重命名
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | 布尔 | `true` | 停止录制后是否把文件重命名为 `<原文件名> <应用标题> [<配置文件名>].<扩展名>`。 |
+| `delay_sec` | 整数 5–600 | `30` | 停止录制后等待多少秒再重命名。开启了 OBS“自动重新封装”且录像很长时可以调大。 |
+
+重命名使用 `recording.directory`（为空时用 OBS 的录制目录）和 `recording.extensions` 查找文件，
+与 `recording.size_source` 选哪种无关。规则详见 [README](../README.md#录制后重命名)。
+
 ## `web` — 配置页面
 
 | 字段 | 类型 | 默认值 | 说明 |
@@ -95,6 +105,7 @@
     "text_opacity": 0.9, "shadow": true, "shadow_color": "#202020",
     "bg_color": "#000000", "bg_opacity": 0.4
   },
+  "rename": { "enabled": true, "delay_sec": 30 },
   "web": { "port": 8765 }
 }
 ```

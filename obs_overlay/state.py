@@ -34,6 +34,12 @@ class Status:
     render_total: int = 0
     skipped_partial: bool = False       # True = 本程序启动时录制已在进行，计数不含之前的部分
 
+    # ---- 录制后重命名 ----
+    profile: str = ""                   # 本次录制使用的配置文件（录制开始时读取）
+    current_scene: str = ""             # 录制期间的当前节目场景
+    last_rename: str = ""               # 最近一次重命名的结果或计划
+    last_rename_at: float = 0.0
+
     # ---- 目录扫描 ----
     file_path: str = ""
     file_size: int = 0

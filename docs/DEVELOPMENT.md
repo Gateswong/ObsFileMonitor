@@ -91,13 +91,23 @@ print(c.send("GetStats", raw=True))
 - 每 2 秒拉取 `/api/status` 显示运行状态，方便排查连接问题；
 - 密码采用“留空保持不变”的约定，避免把密码回传到浏览器。
 
-### 第 8 步：入口（`__main__.py`）
+### 第 8 步：录制后重命名（`renamer.py`）
+
+先用只读请求在真实 OBS 中确认数据格式：`GetSceneItemList` 的来源类型（`game_capture`、`window_capture`、
+`monitor_capture`），以及 `GetInputSettings` 中 `window` 字段的 `标题:类名:进程名` 格式。然后：
+
+- 纯函数 `parse_window_title` / `pick_app_title` / `build_new_stem` / `unique_path` 和 `SceneTracker` 先写好并单元测试；
+- `ObsPoller` 在录制开始时记录配置文件，录制中累计场景时长，录制停止时确定应用标题并提交 `RenameJob`；
+- `RenameWorker` 按到期时间执行任务，文件被占用则重新入队；
+- `file_monitor.list_recordings()` 从原来的 `find_latest_recording()` 中提取出来，供两者共用。
+
+### 第 9 步：入口（`__main__.py`）
 
 创建 `ConfigStore`、`SharedState`，启动三个后台线程，最后在主线程运行叠加窗口。
 
 ## 测试
 
-`tests/test_core.py` 覆盖不依赖 OBS 和图形界面的逻辑：
+`tests/test_core.py` 与 `tests/test_renamer.py` 覆盖不依赖 OBS 和图形界面的逻辑：
 
 | 测试类 | 覆盖内容 |
 | --- | --- |
@@ -107,6 +117,12 @@ print(c.send("GetStats", raw=True))
 | `PasswordHandlingTest` | 密码不回传、“留空保持不变”合并逻辑 |
 | `SkipTrackerTest` | 基线差值、停止后保留、中途接入标记 `*`、OBS 重启重建基线 |
 | `FileMonitorTest` | 选取最新文件、按录制开始时间过滤、读取正在写入文件的大小、目录不存在 |
+| `ParseWindowTitleTest` | 真实 OBS 的 `window` 值、`#3A`/`#22` 转义、尾随空格、空值 |
+| `PickAppTitleTest` | 游戏采集 → 窗口采集 → 显示器采集的优先级、来源顺序、隐藏来源、分组、无窗口的游戏采集 |
+| `BuildNewStemTest` | 完整文件名、缺少部分时无双空格、非法字符替换 |
+| `SceneTrackerTest` | 最长场景 |
+| `RunJobTest` | 改名、只处理录制时间窗口内的文件、分段 + remux 副本、不覆盖、文件被占用时重试且不重复追加、找不到文件 |
+| `RenameWorkerTest` | 到期任务被执行并回报结果 |
 
 与 OBS 的联调需要手动进行，建议的检查清单：
 
@@ -120,7 +136,10 @@ print(c.send("GetStats", raw=True))
 8. 背景不透明度设为 0 → 只有带阴影的文字；设为 0.5 → 出现半透明底板，文字仍在底板之上；
 9. 修改透明度、颜色并保存 → 叠加窗口立即变化；
 10. 鼠标点击叠加窗口区域 → 点击落到下层窗口；
-11. OBS 添加“显示器采集”源 → 预览画面中看不到叠加窗口，屏幕上能看到。
+11. OBS 添加“显示器采集”源 → 预览画面中看不到叠加窗口，屏幕上能看到；
+12. 在游戏场景录制约 1 分钟、中途切到其他场景几秒后停止 → 约 30 秒后文件变为 `<原名> <游戏窗口标题> [<配置文件>].<扩展名>`；
+13. 主要在“显示器采集”场景录制 → 应用标题为 `Display Capture`；
+14. 停止后 30 秒内开始下一次录制 → 只有上一个文件被重命名。
 
 ## 如何添加一个新的显示项
 

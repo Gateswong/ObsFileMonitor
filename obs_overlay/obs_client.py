@@ -4,6 +4,10 @@
 
 * ``GetRecordStatus`` → 是否在录制 / 暂停、已录制时长、已写入字节数
 * ``GetStats``        → 编码跳帧、渲染跳帧（OBS 启动以来的累计值）
+* ``GetCurrentProgramScene`` → 仅录制期间：累计各场景的显示时长（用于录制后重命名）
+
+录制开始时额外请求 ``GetProfileList`` 记录配置文件名；录制停止时找出显示时间最长的
+场景，读取其中的采集来源确定应用标题，然后把重命名任务交给 :class:`RenameWorker`。
 
 连接断开或配置变化时自动重连。协议文档：
 https://github.com/obsproject/obs-websocket/blob/master/docs/generated/protocol.md
@@ -15,11 +19,13 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import obsws_python as obs
 from obsws_python.error import OBSSDKError, OBSSDKRequestError
 
 from .config import ConfigStore
+from .renamer import RenameJob, RenameWorker, SceneTracker, pick_app_title
 from .state import SharedState
 
 log = logging.getLogger(__name__)
@@ -141,11 +147,16 @@ class SkipTracker:
 
 
 class ObsPoller(threading.Thread):
-    def __init__(self, store: ConfigStore, state: SharedState) -> None:
+    def __init__(self, store: ConfigStore, state: SharedState, renamer: RenameWorker | None = None) -> None:
         super().__init__(name="ObsPoller", daemon=True)
         self.store = store
         self.state = state
+        self.renamer = renamer
         self.skips = SkipTracker()
+        self.scenes = SceneTracker()
+        self._profile: str | None = None
+        self._record_started_at = 0.0
+        self._last_scene_tick: float | None = None
         self._stop = threading.Event()
         self._reconnect = threading.Event()
         self._was_recording = False
@@ -212,10 +223,31 @@ class ObsPoller(threading.Thread):
         duration_ms = int(rec.get("outputDuration", 0))
         changes: dict = {"recording": recording, "paused": bool(rec.get("outputPaused", False))}
 
+        paused = changes["paused"]
+
         if recording and not self._was_recording:
             # 新的一次录制：推算开始时间，并刷新录制目录（用户可能在 OBS 中改过）
-            changes["record_started_at"] = time.time() - duration_ms / 1000
+            self._record_started_at = time.time() - duration_ms / 1000
+            changes["record_started_at"] = self._record_started_at
             self._refresh_record_directory(client)
+            # 录制期间 OBS 不允许切换配置文件，开始时记录一次即可
+            self._profile = client.send("GetProfileList", raw=True)["currentProfileName"]
+            self.scenes.start()
+            self._last_scene_tick = None
+            changes["profile"] = self._profile
+        elif not recording and self._was_recording:
+            self._schedule_rename(client)
+
+        if recording:
+            scene = client.send("GetCurrentProgramScene", raw=True)
+            # obs-websocket 5.3 起字段名为 currentProgramSceneName，旧版本为 sceneName
+            scene_name = scene.get("currentProgramSceneName") or scene.get("sceneName")
+            now = time.monotonic()
+            if self._last_scene_tick is not None and not paused:
+                # 两次轮询之间的时间计入当前场景；暂停期间不计
+                self.scenes.tick(scene_name, now - self._last_scene_tick)
+            self._last_scene_tick = now
+            changes["current_scene"] = scene_name
 
         skipped = self.skips.update(recording, SkipCounters.from_stats(stats), duration_ms)
         changes.update(
@@ -235,3 +267,58 @@ class ObsPoller(threading.Thread):
 
         self._was_recording = recording
         self.state.update(**changes)
+
+    # ---------- 录制后重命名 ----------
+
+    def _resolve_app_title(self, client: obs.ReqClient, scene: str) -> str | None:
+        def items(scene_name: str) -> list[dict]:
+            return client.send("GetSceneItemList", {"sceneName": scene_name}, raw=True)["sceneItems"]
+
+        def group_items(group_name: str) -> list[dict]:
+            return client.send("GetGroupSceneItemList", {"sceneName": group_name}, raw=True)["sceneItems"]
+
+        def settings(input_name: str) -> dict:
+            return client.send("GetInputSettings", {"inputName": input_name}, raw=True)["inputSettings"]
+
+        return pick_app_title(items(scene), settings, group_items)
+
+    def _schedule_rename(self, client: obs.ReqClient) -> None:
+        """录制刚停止：趁 OBS 仍连接时确定应用标题，然后提交延迟重命名任务。"""
+        cfg = self.store.get()
+        if self.renamer is None or not cfg["rename"]["enabled"]:
+            return
+        stopped_at = time.time()
+        directory = cfg["recording"]["directory"] or self.state.snapshot()["record_directory"]
+        if not directory:
+            self.state.update(last_rename="未知录制目录，未重命名")
+            return
+
+        scene = self.scenes.longest()
+        app_title = None
+        if scene:
+            try:
+                app_title = self._resolve_app_title(client, scene)
+            except OBSSDKRequestError as e:
+                # 例如场景在录制结束前被删除了；仍然按“省略应用标题”重命名
+                log.warning("读取场景 %s 的来源失败：%s", scene, e)
+        log.info(
+            "录制结束。各场景时长（秒）：%s；最长场景：%s；应用标题：%s；配置文件：%s",
+            {k: round(v) for k, v in self.scenes.durations.items()}, scene, app_title, self._profile,
+        )
+
+        delay = cfg["rename"]["delay_sec"]
+        self.renamer.submit(RenameJob(
+            directory=Path(directory),
+            extensions=cfg["recording"]["extensions"],
+            started_at=self._record_started_at,
+            stopped_at=stopped_at,
+            profile=self._profile,
+            app_title=app_title,
+            due=stopped_at + delay,
+            scene=scene,
+        ))
+        self.state.update(
+            last_rename=f"{delay} 秒后重命名（场景：{scene or '未知'}，应用：{app_title or '无'}，"
+                        f"配置文件：{self._profile or '未知'}）",
+            last_rename_at=time.time(),
+        )
