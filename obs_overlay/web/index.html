@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OBS 录制叠加 · 配置</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --text: #1d2129; --muted: #6b7280;
+    --border: #d9dce1; --accent: #2563eb; --ok: #16a34a; --bad: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181d; --card: #1f2229; --text: #e5e7eb; --muted: #9ca3af;
+      --border: #374151; --accent: #60a5fa; --ok: #4ade80; --bad: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 "Microsoft YaHei UI", "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  section { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+            padding: 16px; margin-bottom: 16px; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  .grid { display: grid; grid-template-columns: 160px 1fr; gap: 10px 12px; align-items: center; }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; gap: 4px; } }
+  label { color: var(--muted); }
+  input, select { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+                  background: var(--bg); color: var(--text); font: inherit; }
+  input[type=checkbox] { width: auto; }
+  input[type=color] { padding: 0; height: 32px; }
+  .hint { grid-column: 2; color: var(--muted); font-size: 12px; margin-top: -6px; }
+  @media (max-width: 560px) { .hint { grid-column: 1; } }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  button { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--card);
+           color: var(--text); font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--bad); }
+  .msg { min-height: 1.5em; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  dl.status { display: grid; grid-template-columns: 160px 1fr; gap: 4px 12px; margin: 0; }
+  dl.status dt { color: var(--muted); } dl.status dd { margin: 0; word-break: break-all; }
+</style>
+</head>
+<body>
+<main>
+  <h1>OBS 录制叠加 · 配置</h1>
+
+  <section>
+    <h2>运行状态</h2>
+    <dl class="status" id="status"><dt>加载中…</dt><dd></dd></dl>
+  </section>
+
+  <form id="form" autocomplete="off">
+    <section>
+      <h2>OBS WebSocket</h2>
+      <div class="grid">
+        <label for="obs.host">主机</label><input id="obs.host" required>
+        <label for="obs.port">端口</label><input id="obs.port" type="number" min="1" max="65535" required>
+        <label for="obs.password">密码</label><input id="obs.password" type="password">
+        <div class="hint" id="pw-hint">在 OBS → 工具 → WebSocket 服务器设置 → 显示连接信息 中查看</div>
+        <label for="clear-password">清除已保存的密码</label><input id="clear-password" type="checkbox">
+        <label for="obs.poll_interval_sec">轮询间隔（秒）</label>
+        <input id="obs.poll_interval_sec" type="number" min="0.2" max="10" step="0.1" required>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button type="button" id="test">测试连接</button>
+        <span class="msg" id="test-msg"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>录制文件大小</h2>
+      <div class="grid">
+        <label for="recording.size_source">数据来源</label>
+        <select id="recording.size_source">
+          <option value="directory">扫描录制目录（本次录制文件的实际大小，推荐）</option>
+          <option value="websocket">OBS WebSocket outputBytes（实时，可能是本次 OBS 会话的累计值）</option>
+        </select>
+        <label for="recording.directory">录制目录</label><input id="recording.directory" placeholder="留空 = 自动使用 OBS 中设置的录制目录">
+        <label for="recording.scan_interval_sec">扫描间隔（秒）</label>
+        <input id="recording.scan_interval_sec" type="number" min="15" max="30" required>
+        <label for="recording.extensions">文件扩展名</label><input id="recording.extensions">
+        <div class="hint">逗号分隔，例如 .mkv, .mp4</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>叠加窗口</h2>
+      <div class="grid">
+        <label for="overlay.enabled">显示叠加窗口</label><input id="overlay.enabled" type="checkbox">
+        <label for="overlay.show_when_idle">未录制时也显示</label><input id="overlay.show_when_idle" type="checkbox">
+        <label for="overlay.click_through">鼠标穿透</label><input id="overlay.click_through" type="checkbox">
+        <label for="overlay.exclude_from_capture">不被录进视频</label><input id="overlay.exclude_from_capture" type="checkbox">
+        <div class="hint">对 OBS 显示器采集和截图工具隐藏叠加窗口（需 Windows 10 2004 或更高版本）</div>
+        <label for="overlay.position">位置</label>
+        <select id="overlay.position">
+          <option value="top-left">左上</option><option value="top-right">右上</option>
+          <option value="bottom-left">左下</option><option value="bottom-right">右下</option>
+        </select>
+        <label for="overlay.margin_x">水平边距（px）</label><input id="overlay.margin_x" type="number" required>
+        <label for="overlay.margin_y">垂直边距（px）</label><input id="overlay.margin_y" type="number" required>
+        <label for="overlay.font_size">字号</label><input id="overlay.font_size" type="number" min="8" max="48" required>
+        <label for="overlay.fg_color">文字颜色</label><input id="overlay.fg_color" type="color">
+        <label for="overlay.warn_color">警告颜色</label><input id="overlay.warn_color" type="color">
+        <label for="overlay.text_opacity">文字不透明度</label><input id="overlay.text_opacity" type="number" min="0.1" max="1" step="0.05" required>
+        <label for="overlay.shadow">文字阴影</label><input id="overlay.shadow" type="checkbox">
+        <label for="overlay.shadow_color">阴影颜色</label><input id="overlay.shadow_color" type="color">
+        <label for="overlay.bg_color">背景色</label><input id="overlay.bg_color" type="color">
+        <label for="overlay.bg_opacity">背景不透明度</label><input id="overlay.bg_opacity" type="number" min="0" max="1" step="0.05" required>
+        <div class="hint">0 = 不显示背景方块，只显示文字</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Web 配置页面</h2>
+      <div class="grid">
+        <label for="web.port">端口</label><input id="web.port" type="number" min="1" max="65535" required>
+        <div class="hint">修改后需重启程序生效</div>
+      </div>
+    </section>
+
+    <div class="row">
+      <button type="submit" class="primary">保存配置</button>
+      <button type="button" class="danger" id="quit">退出程序</button>
+      <span class="msg" id="save-msg"></span>
+    </div>
+  </form>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let config = null;
+
+// 遍历配置中的每个字段：fn(section, key, element)
+function eachField(fn) {
+  for (const section of Object.keys(config)) {
+    for (const key of Object.keys(config[section])) {
+      const el = $(`${section}.${key}`);
+      if (el) fn(section, key, el);
+    }
+  }
+}
+
+function fillForm() {
+  eachField((s, k, el) => {
+    const v = config[s][k];
+    if (el.type === "checkbox") el.checked = v;
+    else if (s === "obs" && k === "password") el.value = "";
+    else if (Array.isArray(v)) el.value = v.join(", ");
+    else el.value = v;
+  });
+  $("obs.password").placeholder = config.obs.password_set ? "已设置（留空保持不变）" : "未设置";
+  $("clear-password").checked = false;
+}
+
+function readForm() {
+  const out = structuredClone(config);
+  eachField((s, k, el) => {
+    if (el.type === "checkbox") out[s][k] = el.checked;
+    else if (el.type === "number") out[s][k] = Number(el.value);
+    else out[s][k] = el.value;
+  });
+  // 密码：null = 保持不变，"" = 清除
+  const pw = $("obs.password").value;
+  out.obs.password = $("clear-password").checked ? "" : (pw === "" ? null : pw);
+  return out;
+}
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+function showMsg(el, text, ok) {
+  el.textContent = text;
+  el.className = "msg " + (ok ? "ok" : "bad");
+}
+
+const fmtBytes = (n) => {
+  const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return i ? `${n.toFixed(2)} ${u[i]}` : `${n} B`;
+};
+const fmtDur = (ms) => {
+  const t = Math.floor(ms / 1000), p = (n) => String(n).padStart(2, "0");
+  return `${p(Math.floor(t / 3600))}:${p(Math.floor(t / 60) % 60)}:${p(t % 60)}`;
+};
+const fmtSkip = (s, t) => t > 0 ? `${s} / ${t}（${(s / t * 100).toFixed(2)}%）` : `${s}`;
+
+async function refreshStatus() {
+  try {
+    const s = await api("GET", "/api/status");
+    const rows = [
+      ["OBS 连接", s.obs_connected ? `✅ ${s.obs_version}` : `❌ ${s.obs_error || "连接中…"}`],
+      ["OBS 录制目录", s.record_directory || "-"],
+      ["录制状态", s.recording ? (s.paused ? "已暂停" : "录制中") : "未录制"],
+      ["已录制时长", fmtDur(s.duration_ms)],
+      ["大小（WebSocket）", fmtBytes(s.output_bytes)],
+      ["大小（目录扫描）", s.file_path ? `${fmtBytes(s.file_size)} — ${s.file_path}` : (s.file_error || "-")],
+      ["编码跳帧", fmtSkip(s.encoder_skipped, s.encoder_total) + (s.skipped_partial ? " *" : "")],
+      ["渲染跳帧", fmtSkip(s.render_skipped, s.render_total) + (s.skipped_partial ? " *" : "")],
+    ];
+    if (s.skipped_partial) rows.push(["*", "本程序启动时录制已在进行，跳帧计数从程序启动时算起"]);
+    $("status").innerHTML = "";
+    for (const [k, v] of rows) {
+      const dt = document.createElement("dt"); dt.textContent = k;
+      const dd = document.createElement("dd"); dd.textContent = v;
+      $("status").append(dt, dd);
+    }
+  } catch (e) {
+    $("status").innerHTML = "";
+    const dt = document.createElement("dt"); dt.textContent = "无法获取状态";
+    const dd = document.createElement("dd"); dd.textContent = "程序可能已退出";
+    $("status").append(dt, dd);
+  }
+}
+
+$("form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  try {
+    const res = await api("POST", "/api/config", readForm());
+    config = res.config;
+    fillForm();
+    showMsg($("save-msg"), res.notice || "已保存并生效", true);
+  } catch (e) {
+    showMsg($("save-msg"), e.message, false);
+  }
+});
+
+$("test").addEventListener("click", async () => {
+  showMsg($("test-msg"), "连接中…", true);
+  try {
+    const res = await api("POST", "/api/test", readForm().obs);
+    showMsg($("test-msg"), res.message, res.ok);
+  } catch (e) {
+    showMsg($("test-msg"), e.message, false);
+  }
+});
+
+$("quit").addEventListener("click", async () => {
+  if (!confirm("确定要退出 OBS 录制叠加程序吗？")) return;
+  await api("POST", "/api/quit", {}).catch(() => {});
+  document.body.innerHTML = "<main><h1>程序已退出，可以关闭此页面。</h1></main>";
+});
+
+(async () => {
+  config = await api("GET", "/api/config");
+  fillForm();
+  refreshStatus();
+  setInterval(refreshStatus, 2000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+# 包含 OBS WebSocket 明文密码，不要提交
+config.json
+config.json.tmp
