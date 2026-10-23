@@ -1,5 +1,12 @@
 # 更新记录
 
+## 0.3.1
+
+- 修复：`start.bat` 以 LF 换行、含 UTF-8 中文保存，cmd.exe 解析错位，报 `'~dp0"' is not recognized` 等错误。
+- 启动逻辑改为 PowerShell 脚本 `start.ps1`；`start.bat` 只作为双击入口。
+- 启动脚本会检查 Python 版本与 tkinter、跳过 Microsoft Store 的 `python` 别名，`requirements.txt` 变化后自动重装依赖，出错时窗口停留显示原因。
+- 新增 `.gitattributes`，保证 `.bat` / `.ps1` 以 CRLF 换行检出。
+
 ## 0.3.0
 
 - 新功能：录制停止后（默认 30 秒）自动把录制文件重命名为 `<原文件名> <应用标题> [<配置文件名>].<扩展名>`。

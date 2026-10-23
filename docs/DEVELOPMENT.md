@@ -153,6 +153,7 @@ print(c.send("GetStats", raw=True))
 
 ## 代码约定
 
+- `start.bat` 保持纯 ASCII + CRLF；启动逻辑写在 `start.ps1` 中，并保存为 UTF-8 带 BOM + CRLF（见 `.gitattributes`）；
 - 注释、日志、界面文字使用中文；标识符使用英文；
 - 只在 `overlay.py`（主线程）中调用 Tk；
 - 后台线程之间不直接调用对方的方法，只通过 `ConfigStore` / `SharedState` / `Event` 交互；

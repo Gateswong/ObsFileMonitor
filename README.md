@@ -42,7 +42,8 @@ OBS 菜单 **工具 → WebSocket 服务器设置**：
 
 ### 2. 启动本工具
 
-双击 `start.bat`。首次运行会自动创建虚拟环境、安装依赖，并在浏览器中打开配置页面。
+双击 `start.bat`（或在 PowerShell 中运行 `.\start.ps1`）。首次运行会自动创建虚拟环境、安装依赖，并在浏览器中打开配置页面；
+`requirements.txt` 变化后会自动重新安装依赖。传给脚本的参数会原样转给程序，例如 `start.bat --open-config`。
 
 也可以手动启动：
 
@@ -137,7 +138,8 @@ ObsFileMonitor/
 ├─ tests/             单元测试（test_core.py、test_renamer.py）
 ├─ docs/               文档
 ├─ requirements.txt
-└─ start.bat           双击启动脚本
+├─ start.ps1           启动脚本（创建虚拟环境、安装依赖、启动程序）
+└─ start.bat           双击启动入口，只调用 start.ps1
 ```
 
 ## 安全说明

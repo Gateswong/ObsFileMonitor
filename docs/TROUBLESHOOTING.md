@@ -87,6 +87,15 @@ OBS 统计窗口显示的是 **OBS 启动以来** 的累计值，本工具显示
 - 游戏采集如果设置为“捕获任意全屏应用程序”，OBS 不保存窗口标题，会被跳过；
 - 标题取的是 OBS 保存的窗口标题（游戏采集属性中“窗口”下拉框里冒号后面的部分），不是来源名称。
 
-## 双击 `start.bat` 后窗口一闪而过
+## 启动脚本报错
 
-在命令行中运行 `start.bat` 查看报错。常见原因：未安装 Python，或 Python 安装时未勾选 tcl/tk。
+出错时窗口会停留并显示原因，按回车关闭。常见原因：
+
+| 报错 | 处理 |
+| --- | --- |
+| 未找到可用的 Python | 安装 Python 3.10+，勾选 “Add python.exe to PATH” 和 “tcl/tk and IDLE”。Microsoft Store 的 `python` 别名不算 |
+| 安装依赖失败 | 检查网络后重试；仍失败可删除 `.venv` 文件夹后重新运行 |
+| `'~dp0"' is not recognized…`、`'error' is not recognized…` 等 | 0.3.1 之前的 `start.bat` 以 LF 换行、含 UTF-8 中文保存，cmd.exe 解析错位。请更新到当前版本 |
+
+`start.bat` 只是一个纯 ASCII、CRLF 换行的入口，所有逻辑都在 `start.ps1` 中。`start.ps1` 必须保存为 UTF-8 **带 BOM**，
+否则 Windows PowerShell 5.1 会把中文读成乱码；仓库中的 `.gitattributes` 保证这两个文件以 CRLF 换行检出。
